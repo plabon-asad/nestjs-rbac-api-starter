@@ -29,6 +29,7 @@
     "db:parity": "tsx scripts/prisma-database.ts parity",
     "db:migrate": "prisma migrate dev",
     "db:deploy": "prisma migrate deploy",
+    "db:deploy:test": "tsx scripts/migrate-test-db.ts",
     "db:seed": "prisma db seed",
     "db:studio": "prisma studio"
   },
