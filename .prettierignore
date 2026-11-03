@@ -1,0 +1,10 @@
+dist
+node_modules
+coverage
+.env
+.env.*
+!.env.example
+src/generated
+*.tsbuildinfo
+
+.qoder/
