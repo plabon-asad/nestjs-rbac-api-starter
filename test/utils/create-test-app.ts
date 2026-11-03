@@ -5,6 +5,8 @@ import { APP_ENV, loadAppEnv } from '../../src/config/app.config.js';
 import { CoreModule } from '../../src/config/core.module.js';
 import { PrismaService } from '../../src/database/prisma/prisma.service.js';
 import { AuthModule } from '../../src/modules/auth/auth.module.js';
+import { PermissionsModule } from '../../src/modules/permissions/permissions.module.js';
+import { RolesModule } from '../../src/modules/roles/roles.module.js';
 import { MailerPort } from '../../src/modules/auth/interfaces/mailer.port.js';
 import type { AppEnvironment } from '../../src/config/env.validation.js';
 import { prisma } from './prisma-test.js';
@@ -44,7 +46,7 @@ export async function createTestApp(): Promise<TestContext> {
   const mailer = new CapturingMailer();
 
   const moduleRef = await Test.createTestingModule({
-    imports: [CoreModule, AuthModule],
+    imports: [CoreModule, AuthModule, RolesModule, PermissionsModule],
   })
     .overrideProvider(APP_ENV)
     .useValue(env)

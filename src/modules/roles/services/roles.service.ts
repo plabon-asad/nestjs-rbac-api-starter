@@ -1,0 +1,141 @@
+import {
+  BadRequestException,
+  ConflictException,
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
+import { PrismaService } from '../../../database/prisma/prisma.service.js';
+import type { Prisma } from '../../../generated/prisma/client.js';
+import { isUniqueViolation } from '../../../common/prisma/unique-constraint.js';
+import type { CreateRoleDto, UpdateRoleDto } from '../dto/role.schemas.js';
+import { roleWithPermissions, toRoleView, type RoleView } from '../models/role-views.js';
+
+@Injectable()
+export class RolesService {
+  constructor(private readonly prisma: PrismaService) {}
+
+  async list(): Promise<RoleView[]> {
+    const roles = await this.prisma.role.findMany({
+      include: roleWithPermissions,
+      orderBy: { name: 'asc' },
+    });
+    return roles.map(toRoleView);
+  }
+
+  async findById(id: string): Promise<RoleView> {
+    return toRoleView(await this.requireRole(id));
+  }
+
+  async create(dto: CreateRoleDto): Promise<RoleView> {
+    const permissionIds = await this.resolvePermissionIds(dto.permissionKeys ?? []);
+
+    try {
+      const role = await this.prisma.$transaction(async (tx) => {
+        const created = await tx.role.create({
+          data: { name: dto.name, description: dto.description ?? null },
+        });
+        if (permissionIds.length > 0) {
+          await tx.rolePermission.createMany({
+            data: permissionIds.map((permissionId) => ({
+              roleId: created.id,
+              permissionId,
+            })),
+          });
+        }
+        return created;
+      });
+
+      return await this.findById(role.id);
+    } catch (error) {
+      if (isUniqueViolation(error)) {
+        throw new ConflictException(`Role ${dto.name} already exists`);
+      }
+      throw error;
+    }
+  }
+
+  async update(id: string, dto: UpdateRoleDto): Promise<RoleView> {
+    const role = await this.requireRole(id);
+    this.assertMutable(role.isSystem, 'rename');
+
+    const data: Prisma.RoleUpdateInput = {};
+    if (dto.name !== undefined) data.name = dto.name;
+    if (dto.description !== undefined) data.description = dto.description;
+
+    try {
+      await this.prisma.role.update({ where: { id }, data });
+    } catch (error) {
+      if (isUniqueViolation(error)) {
+        throw new ConflictException(`Role ${dto.name} already exists`);
+      }
+      throw error;
+    }
+
+    return await this.findById(id);
+  }
+
+  /** Replace semantics: the role ends up holding exactly the supplied keys. */
+  async setPermissions(id: string, permissionKeys: readonly string[]): Promise<RoleView> {
+    const role = await this.requireRole(id);
+    this.assertMutable(role.isSystem, 'revoke permissions from');
+
+    const permissionIds = await this.resolvePermissionIds(permissionKeys);
+    await this.prisma.$transaction(async (tx) => {
+      await tx.rolePermission.deleteMany({ where: { roleId: id } });
+      if (permissionIds.length > 0) {
+        await tx.rolePermission.createMany({
+          data: permissionIds.map((permissionId) => ({ roleId: id, permissionId })),
+        });
+      }
+    });
+
+    return await this.findById(id);
+  }
+
+  async remove(id: string): Promise<void> {
+    const role = await this.requireRole(id);
+    this.assertMutable(role.isSystem, 'delete');
+
+    const members = await this.prisma.userRole.count({ where: { roleId: id } });
+    if (members > 0) {
+      throw new ConflictException(`Role is assigned to ${members} user(s); reassign them first`);
+    }
+
+    await this.prisma.role.delete({ where: { id } });
+  }
+
+  private assertMutable(isSystem: boolean, verb: string): void {
+    if (isSystem) {
+      throw new ForbiddenException(`The system role cannot be ${verb}`);
+    }
+  }
+
+  private async requireRole(id: string) {
+    const role = await this.prisma.role.findUnique({
+      where: { id },
+      include: roleWithPermissions,
+    });
+    if (role === null) {
+      throw new NotFoundException(`Role ${id} not found`);
+    }
+    return role;
+  }
+
+  private async resolvePermissionIds(keys: readonly string[]): Promise<string[]> {
+    const wanted = [...new Set(keys)];
+    if (wanted.length === 0) return [];
+
+    const found = await this.prisma.permission.findMany({
+      where: { key: { in: wanted } },
+      select: { id: true, key: true },
+    });
+    const known = new Set(found.map((permission) => permission.key));
+    const unknown = wanted.filter((key) => !known.has(key));
+
+    if (unknown.length > 0) {
+      throw new BadRequestException(`Unknown permission keys: ${unknown.join(', ')}`);
+    }
+    return found.map((permission) => permission.id);
+  }
+}

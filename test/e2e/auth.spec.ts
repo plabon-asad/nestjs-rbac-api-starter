@@ -1,31 +1,13 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import request from 'supertest';
-import { PasswordService } from '../../src/modules/auth/services/password.service.js';
 import { prisma, resetTestDatabase } from '../utils/prisma-test.js';
+import { seedUser } from '../utils/seed-user.js';
 import { createTestApp, type TestContext } from '../utils/create-test-app.js';
 
 const INVALID_CREDENTIALS_MESSAGE = 'Invalid email or password.';
 
 let ctx: TestContext;
 let http: () => request.Agent;
-
-async function seedUser(
-  email: string,
-  password: string,
-  overrides: { status?: 'ACTIVE' | 'DISABLED' | 'LOCKED' } = {},
-): Promise<string> {
-  const passwords = new PasswordService({ memoryCost: 8_192, timeCost: 2, parallelism: 1 });
-  const user = await prisma.user.create({
-    data: {
-      email: email.toLowerCase(),
-      passwordHash: await passwords.hash(password),
-      firstName: 'E2e',
-      lastName: 'Tester',
-      status: overrides.status ?? 'ACTIVE',
-    },
-  });
-  return user.id;
-}
 
 function login(email: string, password: string): request.Test {
   return request(ctx.app.getHttpServer()).post('/api/auth/login').send({ email, password });
