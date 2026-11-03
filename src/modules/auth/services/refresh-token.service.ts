@@ -1,17 +1,19 @@
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
+import { APP_ENV } from '../../../config/app.config.js';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
-import type { PrismaService } from '../../../database/prisma/prisma.service.js';
+import { PrismaService } from '../../../database/prisma/prisma.service.js';
 import type { AppEnvironment } from '../../../config/env.validation.js';
 
 export interface RequestMeta {
-  readonly ip?: string;
-  readonly userAgent?: string;
+  readonly ip?: string | undefined;
+  readonly userAgent?: string | undefined;
 }
 
 export interface IssuedRefreshToken {
   readonly token: string;
   readonly tokenHash: string;
   readonly familyId: string;
+  readonly userId: string;
   readonly expiresAt: Date;
 }
 
@@ -33,7 +35,7 @@ export class RefreshTokenReuseError extends Error {
 export class RefreshTokenService {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly env: AppEnvironment,
+    @Inject(APP_ENV) private readonly env: AppEnvironment,
   ) {}
 
   async issue(userId: string, meta: RequestMeta, familyId?: string): Promise<IssuedRefreshToken> {
@@ -53,7 +55,7 @@ export class RefreshTokenService {
       },
     });
 
-    return { token, tokenHash, familyId: family, expiresAt };
+    return { token, tokenHash, familyId: family, userId, expiresAt };
   }
 
   async rotate(presented: string, meta: RequestMeta): Promise<IssuedRefreshToken> {
@@ -143,7 +145,7 @@ export class RefreshTokenService {
       },
     });
 
-    return { token, tokenHash, familyId, expiresAt };
+    return { token, tokenHash, familyId, userId, expiresAt };
   }
 
   private hash(token: string): string {

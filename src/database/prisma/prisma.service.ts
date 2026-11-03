@@ -1,4 +1,5 @@
-import { Injectable, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
+import { Inject, Injectable, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
+import { APP_ENV } from '../../config/app.config.js';
 import { PrismaMariaDb } from '@prisma/adapter-mariadb';
 import { PrismaPg } from '@prisma/adapter-pg';
 import type { SqlDriverAdapterFactory } from '@prisma/driver-adapter-utils';
@@ -14,7 +15,7 @@ function createDriverAdapter(env: AppEnvironment): SqlDriverAdapterFactory {
 
 @Injectable()
 export class PrismaService extends PrismaClient implements OnModuleInit, OnModuleDestroy {
-  constructor(env: AppEnvironment) {
+  constructor(@Inject(APP_ENV) env: AppEnvironment) {
     super({ adapter: createDriverAdapter(env) });
   }
 

@@ -1,4 +1,5 @@
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
+import { APP_ENV } from '../../../config/app.config.js';
 import { JwtService } from '@nestjs/jwt';
 import { randomUUID } from 'node:crypto';
 import type { AppEnvironment } from '../../../config/env.validation.js';
@@ -17,7 +18,7 @@ export interface AccessClaims {
 export class TokenService {
   private readonly jwtService: JwtService;
 
-  constructor(private readonly env: AppEnvironment) {
+  constructor(@Inject(APP_ENV) private readonly env: AppEnvironment) {
     this.jwtService = new JwtService({ secret: env.jwt.accessSecret });
   }
 
