@@ -1,0 +1,10 @@
+allowBuilds:
+  # Prisma 7 runs without engine binaries and the rest are optional/native or
+  # telemetry scripts; none are needed, so none are ever executed at install time.
+  '@prisma/engines': false
+  '@scarf/scarf': false
+  cpu-features: false
+  esbuild: false
+  prisma: false
+  protobufjs: false
+  ssh2: false
