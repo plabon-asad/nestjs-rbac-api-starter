@@ -21,8 +21,9 @@ afterAll(async () => {
 
 describe('Prisma connectivity', () => {
   it(`connects to the ${env.database.provider} test database`, async () => {
-    const result = await prisma.$queryRaw<{ ok: number }[]>`SELECT 1 AS ok`;
-    expect(result[0]?.ok).toBe(1);
+    // The mariadb adapter surfaces integer literals as BigInt; pg as number.
+    const result = await prisma.$queryRaw<{ ok: number | bigint }[]>`SELECT 1 AS ok`;
+    expect(Number(result[0]?.ok)).toBe(1);
   });
 
   it('has all RBAC tables present (migrations applied)', async () => {
