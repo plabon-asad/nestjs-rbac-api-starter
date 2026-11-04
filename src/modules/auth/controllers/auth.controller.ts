@@ -9,6 +9,7 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import type { CookieOptions, Request, Response } from 'express';
+import { AuthenticatedOnly } from '../../../common/decorators/authenticated-only.decorator.js';
 import { Public } from '../../../common/decorators/public.decorator.js';
 import { CurrentUser } from '../../../common/decorators/current-user.decorator.js';
 import { ZodValidationPipe } from '../../../common/pipes/zod-validation.pipe.js';
@@ -79,6 +80,7 @@ export class AuthController {
     res.clearCookie(SESSION_COOKIE, this.cookieOptions());
   }
 
+  @AuthenticatedOnly()
   @Post('logout-all')
   @HttpCode(204)
   async logoutAll(@CurrentUser() user: AuthenticatedUser): Promise<void> {
@@ -103,6 +105,7 @@ export class AuthController {
     await this.auth.resetPassword(dto.token, dto.newPassword);
   }
 
+  @AuthenticatedOnly()
   @Post('change-password')
   @HttpCode(204)
   async changePassword(
@@ -112,6 +115,7 @@ export class AuthController {
     await this.auth.changePassword(user.id, dto.currentPassword, dto.newPassword);
   }
 
+  @AuthenticatedOnly()
   @Get('me')
   async me(@CurrentUser() user: AuthenticatedUser): Promise<UserView> {
     return this.auth.me(user.id);

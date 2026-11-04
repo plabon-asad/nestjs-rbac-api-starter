@@ -1,10 +1,7 @@
 import { Module, Provider } from '@nestjs/common';
-import { APP_GUARD } from '@nestjs/core';
-import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { APP_ENV } from '../../config/app.config.js';
 import type { AppEnvironment } from '../../config/env.validation.js';
 import { AuthController } from './controllers/auth.controller.js';
-import { JwtAuthGuard } from './guards/jwt-auth.guard.js';
 import { MailerPort } from './interfaces/mailer.port.js';
 import { AuthService } from './services/auth.service.js';
 import { ConsoleMailer } from './services/console-mailer.js';
@@ -29,14 +26,6 @@ const passwordServiceProvider: Provider<PasswordService> = {
 };
 
 @Module({
-  imports: [
-    ThrottlerModule.forRootAsync({
-      inject: [APP_ENV],
-      useFactory: (env: AppEnvironment) => ({
-        throttlers: [{ ttl: env.throttle.ttlSeconds * 1000, limit: env.throttle.limit }],
-      }),
-    }),
-  ],
   controllers: [AuthController],
   providers: [
     AuthService,
@@ -44,8 +33,6 @@ const passwordServiceProvider: Provider<PasswordService> = {
     RefreshTokenService,
     tokenServiceProvider,
     mailerProvider,
-    { provide: APP_GUARD, useClass: ThrottlerGuard },
-    { provide: APP_GUARD, useClass: JwtAuthGuard },
   ],
   exports: [AuthService, TokenService, RefreshTokenService, PasswordService],
 })

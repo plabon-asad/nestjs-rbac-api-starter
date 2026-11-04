@@ -8,12 +8,16 @@ import {
 import { PrismaService } from '../../../database/prisma/prisma.service.js';
 import type { Prisma } from '../../../generated/prisma/client.js';
 import { isUniqueViolation } from '../../../common/prisma/unique-constraint.js';
+import { PermissionEvaluatorService } from '../../authz/services/permission-evaluator.service.js';
 import type { CreateRoleDto, UpdateRoleDto } from '../dto/role.schemas.js';
 import { roleWithPermissions, toRoleView, type RoleView } from '../models/role-views.js';
 
 @Injectable()
 export class RolesService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly evaluator: PermissionEvaluatorService,
+  ) {}
 
   async list(): Promise<RoleView[]> {
     const roles = await this.prisma.role.findMany({
@@ -27,8 +31,12 @@ export class RolesService {
     return toRoleView(await this.requireRole(id));
   }
 
-  async create(dto: CreateRoleDto): Promise<RoleView> {
-    const permissionIds = await this.resolvePermissionIds(dto.permissionKeys ?? []);
+  async create(dto: CreateRoleDto, actorId: string): Promise<RoleView> {
+    const permissionKeys = dto.permissionKeys ?? [];
+    // Grant-scope: creating a role that carries a permission you do not hold is escalation.
+    await this.evaluator.assertCanGrant(actorId, permissionKeys);
+
+    const permissionIds = await this.resolvePermissionIds(permissionKeys);
 
     try {
       const role = await this.prisma.$transaction(async (tx) => {
@@ -76,9 +84,14 @@ export class RolesService {
   }
 
   /** Replace semantics: the role ends up holding exactly the supplied keys. */
-  async setPermissions(id: string, permissionKeys: readonly string[]): Promise<RoleView> {
+  async setPermissions(
+    id: string,
+    permissionKeys: readonly string[],
+    actorId: string,
+  ): Promise<RoleView> {
     const role = await this.requireRole(id);
     this.assertMutable(role.isSystem, 'revoke permissions from');
+    await this.evaluator.assertCanGrant(actorId, permissionKeys);
 
     const permissionIds = await this.resolvePermissionIds(permissionKeys);
     await this.prisma.$transaction(async (tx) => {

@@ -1,7 +1,9 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import request from 'supertest';
 import { prisma, resetTestDatabase } from '../utils/prisma-test.js';
+import { createRoleFixture, grantRole } from '../utils/rbac-fixtures.js';
 import { seedUser } from '../utils/seed-user.js';
+import { routeClient, type RouteClient } from '../utils/route-client.js';
 import { createTestApp, type TestContext } from '../utils/create-test-app.js';
 
 let ctx: TestContext;
@@ -20,20 +22,9 @@ function http(): request.Agent {
   return request(ctx.app.getHttpServer());
 }
 
-type AuthedRequests = Record<
-  'get' | 'post' | 'patch' | 'put' | 'delete',
-  (path: string) => request.Test
->;
-
-function authed(): AuthedRequests {
-  const header = (): string => `Bearer ${bearer}`;
-  return {
-    get: (path) => request(ctx.app.getHttpServer()).get(path).set('Authorization', header()),
-    post: (path) => request(ctx.app.getHttpServer()).post(path).set('Authorization', header()),
-    patch: (path) => request(ctx.app.getHttpServer()).patch(path).set('Authorization', header()),
-    put: (path) => request(ctx.app.getHttpServer()).put(path).set('Authorization', header()),
-    delete: (path) => request(ctx.app.getHttpServer()).delete(path).set('Authorization', header()),
-  };
+/** CRUD itself is covered here as a system-role holder; permission limits are the next suite. */
+function authed(): RouteClient {
+  return routeClient(ctx.app, () => bearer);
 }
 
 beforeAll(async () => {
@@ -42,7 +33,9 @@ beforeAll(async () => {
 
 beforeEach(async () => {
   await resetTestDatabase();
+  await createRoleFixture('SUPER_ADMIN', [], true);
   memberId = await seedUser('rbac@test.local', 'rbac-password-123');
+  await grantRole(memberId, 'SUPER_ADMIN');
   bearer = await login();
 });
 
@@ -135,9 +128,7 @@ describe('roles over HTTP', () => {
   });
 
   it('protects the system role from modification and deletion', async () => {
-    const system = await prisma.role.create({
-      data: { name: 'SUPER_ADMIN', isSystem: true },
-    });
+    const system = await prisma.role.findUniqueOrThrow({ where: { name: 'SUPER_ADMIN' } });
 
     await authed().patch(`/api/roles/${system.id}`).send({ name: 'Hollow' }).expect(403);
     await authed()

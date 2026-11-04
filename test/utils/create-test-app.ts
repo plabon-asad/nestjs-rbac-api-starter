@@ -1,10 +1,12 @@
-import type { INestApplication } from '@nestjs/common';
+import type { INestApplication, Type } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import cookieParser from 'cookie-parser';
 import { APP_ENV, loadAppEnv } from '../../src/config/app.config.js';
 import { CoreModule } from '../../src/config/core.module.js';
+import { globalGuardProviders, throttlerModule } from '../../src/app.module.js';
 import { PrismaService } from '../../src/database/prisma/prisma.service.js';
 import { AuthModule } from '../../src/modules/auth/auth.module.js';
+import { AuthzModule } from '../../src/modules/authz/authz.module.js';
 import { PermissionsModule } from '../../src/modules/permissions/permissions.module.js';
 import { RolesModule } from '../../src/modules/roles/roles.module.js';
 import { MailerPort } from '../../src/modules/auth/interfaces/mailer.port.js';
@@ -41,12 +43,18 @@ export interface TestContext {
   readonly mailer: CapturingMailer;
 }
 
-export async function createTestApp(): Promise<TestContext> {
+export interface CreateTestAppOptions {
+  readonly extraControllers?: readonly Type<unknown>[];
+}
+
+export async function createTestApp(options: CreateTestAppOptions = {}): Promise<TestContext> {
   const env = makeTestEnvForApp();
   const mailer = new CapturingMailer();
 
   const moduleRef = await Test.createTestingModule({
-    imports: [CoreModule, AuthModule, RolesModule, PermissionsModule],
+    imports: [CoreModule, throttlerModule, AuthModule, RolesModule, PermissionsModule, AuthzModule],
+    controllers: [...(options.extraControllers ?? [])],
+    providers: [...globalGuardProviders],
   })
     .overrideProvider(APP_ENV)
     .useValue(env)
