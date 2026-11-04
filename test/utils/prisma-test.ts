@@ -28,10 +28,14 @@ export async function resetTestDatabase(): Promise<void> {
       await prisma.$executeRawUnsafe(`TRUNCATE TABLE ${table} RESTART IDENTITY CASCADE`);
     }
   } else {
-    await prisma.$executeRawUnsafe('SET FOREIGN_KEY_CHECKS = 0');
-    for (const table of TABLES) {
-      await prisma.$executeRawUnsafe(`TRUNCATE TABLE ${table}`);
-    }
-    await prisma.$executeRawUnsafe('SET FOREIGN_KEY_CHECKS = 1');
+    // SET FOREIGN_KEY_CHECKS is session-scoped and each pooled query may take a different
+    // connection, so pin one connection for the whole reset.
+    await prisma.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe('SET FOREIGN_KEY_CHECKS = 0');
+      for (const table of TABLES) {
+        await tx.$executeRawUnsafe(`TRUNCATE TABLE ${table}`);
+      }
+      await tx.$executeRawUnsafe('SET FOREIGN_KEY_CHECKS = 1');
+    });
   }
 }
