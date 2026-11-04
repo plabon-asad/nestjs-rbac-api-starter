@@ -17,6 +17,7 @@ export function makeTestEnv(overrides: DeepPartial<AppEnvironment> = {}): AppEnv
     accessToken: { ttlSeconds: 900 },
     refreshToken: { ttlDays: 14 },
     cookieSecure: false,
+    docsEnabled: false,
     throttle: { limit: 10, ttlSeconds: 60 },
     superAdmin: { email: 'admin@example.com', password: 'test-password-1234' },
   };

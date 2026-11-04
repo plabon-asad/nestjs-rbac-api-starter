@@ -3,6 +3,7 @@ import { Test } from '@nestjs/testing';
 import cookieParser from 'cookie-parser';
 import { APP_ENV, loadAppEnv } from '../../src/config/app.config.js';
 import { CoreModule } from '../../src/config/core.module.js';
+import { setupOpenApi } from '../../src/config/openapi.js';
 import { globalGuardProviders, throttlerModule } from '../../src/app.module.js';
 import { PrismaService } from '../../src/database/prisma/prisma.service.js';
 import { AuthModule } from '../../src/modules/auth/auth.module.js';
@@ -48,6 +49,7 @@ export interface TestContext {
 
 export interface CreateTestAppOptions {
   readonly extraControllers?: readonly Type<unknown>[];
+  readonly openApi?: boolean;
 }
 
 export async function createTestApp(options: CreateTestAppOptions = {}): Promise<TestContext> {
@@ -80,6 +82,9 @@ export async function createTestApp(options: CreateTestAppOptions = {}): Promise
   const app = moduleRef.createNestApplication();
   app.use(cookieParser());
   app.setGlobalPrefix('api');
+  if (options.openApi) {
+    setupOpenApi(app);
+  }
   await app.init();
   return { app, env, mailer };
 }

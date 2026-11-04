@@ -31,6 +31,23 @@ describe('parseEnv', () => {
     expect(config.isProduction).toBe(false);
   });
 
+  it('enables API docs by default outside production', () => {
+    expect(parseEnv(baseEnv()).docsEnabled).toBe(true);
+    expect(parseEnv(baseEnv({ DOCS_ENABLED: 'false' })).docsEnabled).toBe(false);
+  });
+
+  it('refuses to serve API docs in production unless explicitly disabled', () => {
+    // The default (enabled) must fail closed in production...
+    expect(() => parseEnv(baseEnv({ NODE_ENV: 'production', COOKIE_SECURE: 'true' }))).toThrowError(
+      /DOCS_ENABLED/,
+    );
+    // ...while an explicit opt-out is accepted.
+    expect(
+      parseEnv(baseEnv({ NODE_ENV: 'production', COOKIE_SECURE: 'true', DOCS_ENABLED: 'false' }))
+        .docsEnabled,
+    ).toBe(false);
+  });
+
   it('rejects an unknown DATABASE_PROVIDER', () => {
     expect(() => parseEnv(baseEnv({ DATABASE_PROVIDER: 'sqlite' }))).toThrowError(
       /DATABASE_PROVIDER/,

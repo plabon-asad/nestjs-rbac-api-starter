@@ -11,10 +11,12 @@ import {
   Req,
 } from '@nestjs/common';
 import type { Request } from 'express';
+import { ApiBody, ApiTags } from '@nestjs/swagger';
 import { CurrentUser } from '../../../common/decorators/current-user.decorator.js';
 import { RequirePermissions } from '../../../common/decorators/require-permissions.decorator.js';
 import { requestMeta } from '../../../common/http/request-meta.js';
 import { ZodValidationPipe } from '../../../common/pipes/zod-validation.pipe.js';
+import { zodBody } from '../../../config/openapi.js';
 import { UsersService } from '../services/users.service.js';
 import {
   assignRolesSchema,
@@ -27,6 +29,7 @@ import {
 } from '../dto/user.schemas.js';
 import type { UserAdminView } from '../models/user-views.js';
 
+@ApiTags('users')
 @Controller('users')
 export class UsersController {
   constructor(private readonly users: UsersService) {}
@@ -44,6 +47,7 @@ export class UsersController {
   }
 
   @RequirePermissions('users.create')
+  @ApiBody(zodBody(createUserSchema))
   @Post()
   @HttpCode(201)
   create(
@@ -55,6 +59,7 @@ export class UsersController {
   }
 
   @RequirePermissions('users.update')
+  @ApiBody(zodBody(updateUserSchema))
   @Patch(':id')
   update(
     @Param('id', new ZodValidationPipe(userIdSchema)) id: string,
@@ -66,6 +71,7 @@ export class UsersController {
   }
 
   @RequirePermissions('users.assign-roles')
+  @ApiBody(zodBody(assignRolesSchema))
   @Put(':id/roles')
   @HttpCode(200)
   assignRoles(

@@ -1,9 +1,11 @@
 import { Body, Controller, Delete, Get, HttpCode, Param, Patch, Post, Req } from '@nestjs/common';
 import type { Request } from 'express';
+import { ApiBody, ApiTags } from '@nestjs/swagger';
 import { CurrentUser } from '../../../common/decorators/current-user.decorator.js';
 import { RequirePermissions } from '../../../common/decorators/require-permissions.decorator.js';
 import { requestMeta } from '../../../common/http/request-meta.js';
 import { ZodValidationPipe } from '../../../common/pipes/zod-validation.pipe.js';
+import { zodBody } from '../../../config/openapi.js';
 import { PermissionsService } from '../services/permissions.service.js';
 import {
   createPermissionSchema,
@@ -14,6 +16,7 @@ import {
 } from '../dto/permission.schemas.js';
 import type { PermissionView } from '../models/permission-views.js';
 
+@ApiTags('permissions')
 @Controller('permissions')
 export class PermissionsController {
   constructor(private readonly permissions: PermissionsService) {}
@@ -33,6 +36,7 @@ export class PermissionsController {
   }
 
   @RequirePermissions('permissions.create')
+  @ApiBody(zodBody(createPermissionSchema))
   @Post()
   @HttpCode(201)
   create(
@@ -44,6 +48,7 @@ export class PermissionsController {
   }
 
   @RequirePermissions('permissions.update')
+  @ApiBody(zodBody(updatePermissionSchema))
   @Patch(':id')
   update(
     @Param('id', new ZodValidationPipe(permissionIdSchema)) id: string,

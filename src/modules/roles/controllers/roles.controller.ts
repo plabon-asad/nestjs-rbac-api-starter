@@ -11,10 +11,12 @@ import {
   Req,
 } from '@nestjs/common';
 import type { Request } from 'express';
+import { ApiBody, ApiTags } from '@nestjs/swagger';
 import { CurrentUser } from '../../../common/decorators/current-user.decorator.js';
 import { RequirePermissions } from '../../../common/decorators/require-permissions.decorator.js';
 import { requestMeta } from '../../../common/http/request-meta.js';
 import { ZodValidationPipe } from '../../../common/pipes/zod-validation.pipe.js';
+import { zodBody } from '../../../config/openapi.js';
 import { RolesService } from '../services/roles.service.js';
 import {
   createRoleSchema,
@@ -27,6 +29,7 @@ import {
 } from '../dto/role.schemas.js';
 import type { RoleView } from '../models/role-views.js';
 
+@ApiTags('roles')
 @Controller('roles')
 export class RolesController {
   constructor(private readonly roles: RolesService) {}
@@ -44,6 +47,7 @@ export class RolesController {
   }
 
   @RequirePermissions('roles.create')
+  @ApiBody(zodBody(createRoleSchema))
   @Post()
   @HttpCode(201)
   create(
@@ -55,6 +59,7 @@ export class RolesController {
   }
 
   @RequirePermissions('roles.update')
+  @ApiBody(zodBody(updateRoleSchema))
   @Patch(':id')
   update(
     @Param('id', new ZodValidationPipe(roleIdSchema)) id: string,
@@ -66,6 +71,7 @@ export class RolesController {
   }
 
   @RequirePermissions('roles.update')
+  @ApiBody(zodBody(setRolePermissionsSchema))
   @Put(':id/permissions')
   @HttpCode(200)
   setPermissions(

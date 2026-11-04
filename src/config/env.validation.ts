@@ -17,6 +17,10 @@ const envRecordSchema = z
       .enum(['true', 'false'])
       .default('false')
       .transform((value) => value === 'true'),
+    DOCS_ENABLED: z
+      .enum(['true', 'false'])
+      .default('true')
+      .transform((value) => value === 'true'),
     AUTH_THROTTLE_LIMIT: z.coerce.number().int().min(1).default(10),
     AUTH_THROTTLE_TTL_SECONDS: z.coerce.number().int().min(1).default(60),
     SUPER_ADMIN_EMAIL: z.email(),
@@ -48,6 +52,13 @@ const envRecordSchema = z
           path: ['COOKIE_SECURE'],
         });
       }
+      if (value.DOCS_ENABLED) {
+        ctx.addIssue({
+          code: 'custom',
+          message: 'API docs are never served in production; set DOCS_ENABLED=false explicitly',
+          path: ['DOCS_ENABLED'],
+        });
+      }
       if (value.SUPER_ADMIN_PASSWORD === PLACEHOLDER_SUPER_ADMIN_PASSWORD) {
         ctx.addIssue({
           code: 'custom',
@@ -74,6 +85,7 @@ export interface AppEnvironment {
   readonly accessToken: { readonly ttlSeconds: number };
   readonly refreshToken: { readonly ttlDays: number };
   readonly cookieSecure: boolean;
+  readonly docsEnabled: boolean;
   readonly throttle: { readonly limit: number; readonly ttlSeconds: number };
   readonly superAdmin: { readonly email: string; readonly password: string };
 }
@@ -118,6 +130,7 @@ export function parseEnv(record: Record<string, string | undefined>): AppEnviron
     accessToken: { ttlSeconds: env.ACCESS_TOKEN_TTL_SECONDS },
     refreshToken: { ttlDays: env.REFRESH_TOKEN_TTL_DAYS },
     cookieSecure: env.COOKIE_SECURE,
+    docsEnabled: env.DOCS_ENABLED,
     throttle: { limit: env.AUTH_THROTTLE_LIMIT, ttlSeconds: env.AUTH_THROTTLE_TTL_SECONDS },
     superAdmin: { email: env.SUPER_ADMIN_EMAIL, password: env.SUPER_ADMIN_PASSWORD },
   };

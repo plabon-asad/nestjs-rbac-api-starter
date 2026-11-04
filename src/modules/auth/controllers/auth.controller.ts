@@ -9,10 +9,12 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import type { CookieOptions, Request, Response } from 'express';
+import { ApiBearerAuth, ApiBody, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { AuthenticatedOnly } from '../../../common/decorators/authenticated-only.decorator.js';
 import { Public } from '../../../common/decorators/public.decorator.js';
 import { CurrentUser } from '../../../common/decorators/current-user.decorator.js';
 import { ZodValidationPipe } from '../../../common/pipes/zod-validation.pipe.js';
+import { zodBody } from '../../../config/openapi.js';
 import { AuthService } from '../services/auth.service.js';
 import type { RequestMeta } from '../services/refresh-token.service.js';
 import {
@@ -34,11 +36,18 @@ import type { AuthenticatedUser } from '../../../common/interfaces/authenticated
 
 const SESSION_COOKIE = 'refresh_token';
 
+@ApiTags('auth')
 @Controller('auth')
 export class AuthController {
   constructor(private readonly auth: AuthService) {}
 
   @Public()
+  @ApiOperation({
+    summary: 'Log in with email and password',
+    description:
+      'Issues an access token and rotates-in a refresh token; throttled and lockout-protected.',
+  })
+  @ApiBody(zodBody(loginSchema))
   @Post('login')
   @HttpCode(200)
   async login(
@@ -52,6 +61,11 @@ export class AuthController {
   }
 
   @Public()
+  @ApiOperation({
+    summary: 'Rotate a refresh token',
+    description: 'Reuse of a rotated token revokes the whole family.',
+  })
+  @ApiBody(zodBody(refreshSchema))
   @Post('refresh')
   @HttpCode(200)
   async refresh(
@@ -70,6 +84,11 @@ export class AuthController {
   }
 
   @Public()
+  @ApiOperation({
+    summary: 'Log out one session',
+    description: 'Revokes the presented refresh token (or session cookie).',
+  })
+  @ApiBody(zodBody(logoutSchema))
   @Post('logout')
   @HttpCode(204)
   async logout(
@@ -82,6 +101,11 @@ export class AuthController {
   }
 
   @AuthenticatedOnly()
+  @ApiBearerAuth('bearerAuth')
+  @ApiOperation({
+    summary: 'Log out everywhere',
+    description: 'Requires an authenticated caller; revokes every refresh token of the account.',
+  })
   @Post('logout-all')
   @HttpCode(204)
   async logoutAll(@CurrentUser() user: AuthenticatedUser, @Req() req: Request): Promise<void> {
@@ -89,6 +113,11 @@ export class AuthController {
   }
 
   @Public()
+  @ApiOperation({
+    summary: 'Request a password-reset mail',
+    description: 'Always answers 202 so account existence is never leaked.',
+  })
+  @ApiBody(zodBody(forgotPasswordSchema))
   @Post('forgot-password')
   @HttpCode(202)
   async forgotPassword(
@@ -99,6 +128,8 @@ export class AuthController {
   }
 
   @Public()
+  @ApiOperation({ summary: 'Reset a password with a mailed token' })
+  @ApiBody(zodBody(resetPasswordSchema))
   @Post('reset-password')
   @HttpCode(204)
   async resetPassword(
@@ -109,6 +140,12 @@ export class AuthController {
   }
 
   @AuthenticatedOnly()
+  @ApiBearerAuth('bearerAuth')
+  @ApiOperation({
+    summary: 'Change your own password',
+    description: 'Requires an authenticated caller.',
+  })
+  @ApiBody(zodBody(changePasswordSchema))
   @Post('change-password')
   @HttpCode(204)
   async changePassword(
@@ -120,6 +157,11 @@ export class AuthController {
   }
 
   @AuthenticatedOnly()
+  @ApiBearerAuth('bearerAuth')
+  @ApiOperation({
+    summary: 'Current profile',
+    description: 'Requires an authenticated caller. Reads live state, not token claims.',
+  })
   @Get('me')
   async me(@CurrentUser() user: AuthenticatedUser): Promise<UserView> {
     return this.auth.me(user.id);
