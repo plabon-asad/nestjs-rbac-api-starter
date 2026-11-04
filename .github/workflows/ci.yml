@@ -1,0 +1,135 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  static:
+    name: Format, lint, types, unit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      # The generated Prisma client is a compilation input for typecheck.
+      - name: Generate Prisma client
+        run: pnpm prisma:generate
+        env:
+          DATABASE_PROVIDER: postgresql
+          DATABASE_URL: postgresql://generate-only:generate-only@localhost:5432/generate-only
+
+      - run: pnpm format:check
+      - run: pnpm lint
+      - run: pnpm typecheck
+      - run: pnpm test
+
+  image:
+    name: Docker image build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # No push: this only proves the Dockerfile (install, generate, build, prod prune) works.
+      - name: Build production image
+        run: docker build --build-arg DATABASE_PROVIDER=mysql -t rbac-api:ci .
+
+  databases:
+    name: ${{ matrix.provider }} integration + e2e
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        provider: [postgresql, mysql]
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: rbac
+          POSTGRES_PASSWORD: ci-postgres
+          POSTGRES_DB: rbac_dev
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U rbac"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: ci-mysql-root
+          MYSQL_DATABASE: rbac_dev
+          MYSQL_USER: rbac
+          MYSQL_PASSWORD: ci-mysql
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd "mysqladmin ping -h 127.0.0.1 -u root -pci-mysql-root"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+    env:
+      DATABASE_PROVIDER: ${{ matrix.provider }}
+      DATABASE_URL: ${{ matrix.provider == 'mysql' && 'mysql://rbac:ci-mysql@127.0.0.1:3306/rbac_dev' || 'postgresql://rbac:ci-postgres@127.0.0.1:5432/rbac_dev' }}
+      TEST_DATABASE_URL: ${{ matrix.provider == 'mysql' && 'mysql://rbac:ci-mysql@127.0.0.1:3306/rbac_test' || 'postgresql://rbac:ci-postgres@127.0.0.1:5432/rbac_test' }}
+      JWT_ACCESS_SECRET: ci-only-access-secret-not-for-real-deployments
+      JWT_ISSUER: nestjs-rbac-api-starter-ci
+      JWT_AUDIENCE: nestjs-rbac-api-starter-ci-clients
+      SUPER_ADMIN_EMAIL: admin@example.com
+      SUPER_ADMIN_PASSWORD: change-this-secure-password
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      # The isolated test database is not part of the service containers' bootstrap,
+      # so create it with the container image's own client over the host network.
+      - name: Create rbac_test (postgresql)
+        if: matrix.provider == 'postgresql'
+        run: |
+          docker run --network host --rm -e PGPASSWORD=ci-postgres postgres:16-alpine \
+            psql -h 127.0.0.1 -U rbac -d rbac_dev -c 'CREATE DATABASE rbac_test;'
+
+      - name: Create rbac_test (mysql)
+        if: matrix.provider == 'mysql'
+        run: |
+          docker run --network host --rm mysql:8.4 \
+            mysql -h 127.0.0.1 -u root -pci-mysql-root -e \
+            "CREATE DATABASE IF NOT EXISTS rbac_test; GRANT ALL PRIVILEGES ON rbac_test.* TO 'rbac'@'%';"
+
+      - name: Generate Prisma client
+        run: pnpm prisma:generate
+
+      - name: Migrate test database
+        run: pnpm db:deploy:test
+
+      - name: Migrate and seed development database (bootstrap smoke test)
+        run: pnpm db:deploy && pnpm db:seed
+
+      - name: Build
+        run: pnpm build
+
+      - run: pnpm test:integration
+      - run: pnpm test:e2e

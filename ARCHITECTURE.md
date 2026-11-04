@@ -46,7 +46,7 @@ HTTP → ThrottlerGuard → JwtAuthGuard → PermissionsGuard → Controller (th
      → Repository (Prisma) → DB
 ```
 
-- Access tokens carry `sub`/`sid`/`jti` only — **never permissions**. `PermissionsGuard` loads current server-side effective permissions per request (in-process cache invalidated by every RBAC mutation), so revocation and account deactivation take effect immediately.
+- Access tokens carry `sub`/`sid`/`jti` only — **never permissions**. `PermissionsGuard` loads current server-side effective permissions per request — deliberately uncached, so revocation and account deactivation take effect immediately.
 - Deny-by-default: a global route-tree scan at bootstrap fails startup if any non-`@Public()` route lacks `@RequirePermissions` metadata.
 - Controllers never return Prisma records — explicit whitelisted view models prevent secret leakage.
 - Pluggable `MailerPort` for password-reset delivery; `ConsoleMailer` in dev.
