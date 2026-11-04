@@ -1,6 +1,8 @@
-import { Body, Controller, Get, HttpCode, Param, Put } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Param, Put, Req } from '@nestjs/common';
+import type { Request } from 'express';
 import { CurrentUser } from '../../../common/decorators/current-user.decorator.js';
 import { RequirePermissions } from '../../../common/decorators/require-permissions.decorator.js';
+import { requestMeta } from '../../../common/http/request-meta.js';
 import { ZodValidationPipe } from '../../../common/pipes/zod-validation.pipe.js';
 import {
   PermissionOverridesService,
@@ -33,7 +35,8 @@ export class PermissionOverridesController {
     @Param('permissionKey', new ZodValidationPipe(permissionKeySchema)) permissionKey: string,
     @Body(new ZodValidationPipe(setOverrideSchema)) dto: SetOverrideDto,
     @CurrentUser('id') actorId: string,
+    @Req() req: Request,
   ): Promise<PermissionOverrideView | null> {
-    return this.overrides.set(userId, permissionKey, dto.effect, actorId);
+    return this.overrides.set(userId, permissionKey, dto.effect, actorId, requestMeta(req));
   }
 }

@@ -1,10 +1,11 @@
 import { Module } from '@nestjs/common';
+import { AuditLogsModule } from '../audit-logs/audit-logs.module.js';
 import { AuthzModule } from '../authz/authz.module.js';
 import { RolesController } from './controllers/roles.controller.js';
 import { RolesService } from './services/roles.service.js';
 
 @Module({
-  imports: [AuthzModule],
+  imports: [AuthzModule, AuditLogsModule],
   controllers: [RolesController],
   providers: [RolesService],
   exports: [RolesService],

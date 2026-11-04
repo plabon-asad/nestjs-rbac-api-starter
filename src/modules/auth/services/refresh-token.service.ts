@@ -3,11 +3,9 @@ import { APP_ENV } from '../../../config/app.config.js';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { PrismaService } from '../../../database/prisma/prisma.service.js';
 import type { AppEnvironment } from '../../../config/env.validation.js';
+import type { RequestMeta } from '../../../common/interfaces/request-meta.interface.js';
 
-export interface RequestMeta {
-  readonly ip?: string | undefined;
-  readonly userAgent?: string | undefined;
-}
+export type { RequestMeta };
 
 export interface IssuedRefreshToken {
   readonly token: string;
@@ -25,7 +23,10 @@ export class RefreshTokenInvalidError extends Error {
 }
 
 export class RefreshTokenReuseError extends Error {
-  constructor() {
+  constructor(
+    readonly userId: string,
+    readonly familyId: string,
+  ) {
     super('Refresh token reuse detected; the entire token family has been revoked');
     this.name = 'RefreshTokenReuseError';
   }
@@ -76,7 +77,7 @@ export class RefreshTokenService {
           where: { familyId: existing.familyId, revokedAt: null },
           data: { revokedAt: new Date() },
         });
-        return { kind: 'reuse' } as const;
+        return { kind: 'reuse', userId: existing.userId, familyId: existing.familyId } as const;
       }
 
       if (existing.expiresAt.getTime() <= Date.now()) {
@@ -93,7 +94,7 @@ export class RefreshTokenService {
           where: { familyId: existing.familyId, revokedAt: null },
           data: { revokedAt: new Date() },
         });
-        return { kind: 'reuse' } as const;
+        return { kind: 'reuse', userId: existing.userId, familyId: existing.familyId } as const;
       }
 
       const fresh = await this.issueTo(tx, existing.userId, meta, existing.familyId);
@@ -104,17 +105,27 @@ export class RefreshTokenService {
       case 'invalid':
         throw new RefreshTokenInvalidError();
       case 'reuse':
-        throw new RefreshTokenReuseError();
+        throw new RefreshTokenReuseError(outcome.userId, outcome.familyId);
       default:
         return outcome.fresh;
     }
   }
 
-  async revoke(presented: string): Promise<void> {
+  /** Returns the owning user id when a live token was revoked, else null. */
+  async revoke(presented: string): Promise<string | null> {
+    const tokenHash = this.hash(presented);
+    const existing = await this.prisma.refreshToken.findUnique({
+      where: { tokenHash },
+      select: { userId: true, revokedAt: true },
+    });
+    if (existing === null || existing.revokedAt !== null) {
+      return null;
+    }
     await this.prisma.refreshToken.updateMany({
-      where: { tokenHash: this.hash(presented), revokedAt: null },
+      where: { tokenHash, revokedAt: null },
       data: { revokedAt: new Date() },
     });
+    return existing.userId;
   }
 
   async revokeAllForUser(userId: string): Promise<void> {

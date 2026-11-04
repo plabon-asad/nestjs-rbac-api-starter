@@ -74,17 +74,18 @@ export class AuthController {
   @HttpCode(204)
   async logout(
     @Body(new ZodValidationPipe(logoutSchema)) dto: LogoutDto,
+    @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ): Promise<void> {
-    await this.auth.logout(dto.refreshToken ?? undefined);
+    await this.auth.logout(dto.refreshToken ?? undefined, this.meta(req));
     res.clearCookie(SESSION_COOKIE, this.cookieOptions());
   }
 
   @AuthenticatedOnly()
   @Post('logout-all')
   @HttpCode(204)
-  async logoutAll(@CurrentUser() user: AuthenticatedUser): Promise<void> {
-    await this.auth.logoutAll(user.id);
+  async logoutAll(@CurrentUser() user: AuthenticatedUser, @Req() req: Request): Promise<void> {
+    await this.auth.logoutAll(user.id, this.meta(req));
   }
 
   @Public()
@@ -92,8 +93,9 @@ export class AuthController {
   @HttpCode(202)
   async forgotPassword(
     @Body(new ZodValidationPipe(forgotPasswordSchema)) dto: ForgotPasswordDto,
+    @Req() req: Request,
   ): Promise<void> {
-    await this.auth.forgotPassword(dto.email);
+    await this.auth.forgotPassword(dto.email, this.meta(req));
   }
 
   @Public()
@@ -101,8 +103,9 @@ export class AuthController {
   @HttpCode(204)
   async resetPassword(
     @Body(new ZodValidationPipe(resetPasswordSchema)) dto: ResetPasswordDto,
+    @Req() req: Request,
   ): Promise<void> {
-    await this.auth.resetPassword(dto.token, dto.newPassword);
+    await this.auth.resetPassword(dto.token, dto.newPassword, this.meta(req));
   }
 
   @AuthenticatedOnly()
@@ -111,8 +114,9 @@ export class AuthController {
   async changePassword(
     @CurrentUser() user: AuthenticatedUser,
     @Body(new ZodValidationPipe(changePasswordSchema)) dto: ChangePasswordDto,
+    @Req() req: Request,
   ): Promise<void> {
-    await this.auth.changePassword(user.id, dto.currentPassword, dto.newPassword);
+    await this.auth.changePassword(user.id, dto.currentPassword, dto.newPassword, this.meta(req));
   }
 
   @AuthenticatedOnly()

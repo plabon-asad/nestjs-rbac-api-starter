@@ -1,6 +1,19 @@
-import { Body, Controller, Delete, Get, HttpCode, Param, Patch, Post, Put } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  HttpCode,
+  Param,
+  Patch,
+  Post,
+  Put,
+  Req,
+} from '@nestjs/common';
+import type { Request } from 'express';
 import { CurrentUser } from '../../../common/decorators/current-user.decorator.js';
 import { RequirePermissions } from '../../../common/decorators/require-permissions.decorator.js';
+import { requestMeta } from '../../../common/http/request-meta.js';
 import { ZodValidationPipe } from '../../../common/pipes/zod-validation.pipe.js';
 import { RolesService } from '../services/roles.service.js';
 import {
@@ -36,8 +49,9 @@ export class RolesController {
   create(
     @Body(new ZodValidationPipe(createRoleSchema)) dto: CreateRoleDto,
     @CurrentUser('id') actorId: string,
+    @Req() req: Request,
   ): Promise<RoleView> {
-    return this.roles.create(dto, actorId);
+    return this.roles.create(dto, actorId, requestMeta(req));
   }
 
   @RequirePermissions('roles.update')
@@ -45,8 +59,10 @@ export class RolesController {
   update(
     @Param('id', new ZodValidationPipe(roleIdSchema)) id: string,
     @Body(new ZodValidationPipe(updateRoleSchema)) dto: UpdateRoleDto,
+    @CurrentUser('id') actorId: string,
+    @Req() req: Request,
   ): Promise<RoleView> {
-    return this.roles.update(id, dto);
+    return this.roles.update(id, dto, actorId, requestMeta(req));
   }
 
   @RequirePermissions('roles.update')
@@ -56,14 +72,19 @@ export class RolesController {
     @Param('id', new ZodValidationPipe(roleIdSchema)) id: string,
     @Body(new ZodValidationPipe(setRolePermissionsSchema)) dto: SetRolePermissionsDto,
     @CurrentUser('id') actorId: string,
+    @Req() req: Request,
   ): Promise<RoleView> {
-    return this.roles.setPermissions(id, dto.permissionKeys, actorId);
+    return this.roles.setPermissions(id, dto.permissionKeys, actorId, requestMeta(req));
   }
 
   @RequirePermissions('roles.delete')
   @Delete(':id')
   @HttpCode(204)
-  async remove(@Param('id', new ZodValidationPipe(roleIdSchema)) id: string): Promise<void> {
-    await this.roles.remove(id);
+  async remove(
+    @Param('id', new ZodValidationPipe(roleIdSchema)) id: string,
+    @CurrentUser('id') actorId: string,
+    @Req() req: Request,
+  ): Promise<void> {
+    await this.roles.remove(id, actorId, requestMeta(req));
   }
 }

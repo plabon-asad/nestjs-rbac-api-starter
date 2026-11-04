@@ -6,10 +6,12 @@ import { CoreModule } from '../../src/config/core.module.js';
 import { globalGuardProviders, throttlerModule } from '../../src/app.module.js';
 import { PrismaService } from '../../src/database/prisma/prisma.service.js';
 import { AuthModule } from '../../src/modules/auth/auth.module.js';
+import { AuditLogsModule } from '../../src/modules/audit-logs/audit-logs.module.js';
 import { AuthzModule } from '../../src/modules/authz/authz.module.js';
 import { PermissionsModule } from '../../src/modules/permissions/permissions.module.js';
 import { PermissionOverridesModule } from '../../src/modules/permission-overrides/permission-overrides.module.js';
 import { RolesModule } from '../../src/modules/roles/roles.module.js';
+import { UsersModule } from '../../src/modules/users/users.module.js';
 import { MailerPort } from '../../src/modules/auth/interfaces/mailer.port.js';
 import type { AppEnvironment } from '../../src/config/env.validation.js';
 import { prisma } from './prisma-test.js';
@@ -57,9 +59,11 @@ export async function createTestApp(options: CreateTestAppOptions = {}): Promise
       CoreModule,
       throttlerModule,
       AuthModule,
+      UsersModule,
       RolesModule,
       PermissionsModule,
       PermissionOverridesModule,
+      AuditLogsModule,
       AuthzModule,
     ],
     controllers: [...(options.extraControllers ?? [])],

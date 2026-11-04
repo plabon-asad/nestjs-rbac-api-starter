@@ -4,6 +4,7 @@ import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { APP_ENV } from './config/app.config.js';
 import type { AppEnvironment } from './config/env.validation.js';
 import { CoreModule } from './config/core.module.js';
+import { AuditLogsModule } from './modules/audit-logs/audit-logs.module.js';
 import { AuthModule } from './modules/auth/auth.module.js';
 import { JwtAuthGuard } from './modules/auth/guards/jwt-auth.guard.js';
 import { AuthzModule } from './modules/authz/authz.module.js';
@@ -11,6 +12,7 @@ import { PermissionsGuard } from './modules/authz/guards/permissions.guard.js';
 import { PermissionsModule } from './modules/permissions/permissions.module.js';
 import { PermissionOverridesModule } from './modules/permission-overrides/permission-overrides.module.js';
 import { RolesModule } from './modules/roles/roles.module.js';
+import { UsersModule } from './modules/users/users.module.js';
 
 /**
  * The global guard chain, in execution order: ThrottlerGuard -> JwtAuthGuard -> PermissionsGuard.
@@ -35,9 +37,11 @@ export const throttlerModule = ThrottlerModule.forRootAsync({
     CoreModule,
     throttlerModule,
     AuthModule,
+    UsersModule,
     RolesModule,
     PermissionsModule,
     PermissionOverridesModule,
+    AuditLogsModule,
     AuthzModule,
   ],
   providers: [...globalGuardProviders],

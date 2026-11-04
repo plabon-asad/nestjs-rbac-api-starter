@@ -7,7 +7,9 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../../../database/prisma/prisma.service.js';
 import type { Prisma } from '../../../generated/prisma/client.js';
+import type { RequestMeta } from '../../../common/interfaces/request-meta.interface.js';
 import { isUniqueViolation } from '../../../common/prisma/unique-constraint.js';
+import { AuditLogService } from '../../audit-logs/audit-log.service.js';
 import { PermissionEvaluatorService } from '../../authz/services/permission-evaluator.service.js';
 import type { CreateRoleDto, UpdateRoleDto } from '../dto/role.schemas.js';
 import { roleWithPermissions, toRoleView, type RoleView } from '../models/role-views.js';
@@ -17,6 +19,7 @@ export class RolesService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly evaluator: PermissionEvaluatorService,
+    private readonly audit: AuditLogService,
   ) {}
 
   async list(): Promise<RoleView[]> {
@@ -31,7 +34,7 @@ export class RolesService {
     return toRoleView(await this.requireRole(id));
   }
 
-  async create(dto: CreateRoleDto, actorId: string): Promise<RoleView> {
+  async create(dto: CreateRoleDto, actorId: string, meta: RequestMeta): Promise<RoleView> {
     const permissionKeys = dto.permissionKeys ?? [];
     // Grant-scope: creating a role that carries a permission you do not hold is escalation.
     await this.evaluator.assertCanGrant(actorId, permissionKeys);
@@ -54,6 +57,15 @@ export class RolesService {
         return created;
       });
 
+      await this.audit.record({
+        actorUserId: actorId,
+        action: 'role.created',
+        resourceType: 'role',
+        resourceId: role.id,
+        changes: { name: dto.name, permissionKeys },
+        meta,
+      });
+
       return await this.findById(role.id);
     } catch (error) {
       if (isUniqueViolation(error)) {
@@ -63,7 +75,12 @@ export class RolesService {
     }
   }
 
-  async update(id: string, dto: UpdateRoleDto): Promise<RoleView> {
+  async update(
+    id: string,
+    dto: UpdateRoleDto,
+    actorId: string,
+    meta: RequestMeta,
+  ): Promise<RoleView> {
     const role = await this.requireRole(id);
     this.assertMutable(role.isSystem, 'rename');
 
@@ -80,6 +97,15 @@ export class RolesService {
       throw error;
     }
 
+    await this.audit.record({
+      actorUserId: actorId,
+      action: 'role.updated',
+      resourceType: 'role',
+      resourceId: id,
+      changes: { ...dto },
+      meta,
+    });
+
     return await this.findById(id);
   }
 
@@ -88,6 +114,7 @@ export class RolesService {
     id: string,
     permissionKeys: readonly string[],
     actorId: string,
+    meta: RequestMeta,
   ): Promise<RoleView> {
     const role = await this.requireRole(id);
     this.assertMutable(role.isSystem, 'revoke permissions from');
@@ -103,10 +130,19 @@ export class RolesService {
       }
     });
 
+    await this.audit.record({
+      actorUserId: actorId,
+      action: 'role.grants_updated',
+      resourceType: 'role',
+      resourceId: id,
+      changes: { permissionKeys },
+      meta,
+    });
+
     return await this.findById(id);
   }
 
-  async remove(id: string): Promise<void> {
+  async remove(id: string, actorId: string, meta: RequestMeta): Promise<void> {
     const role = await this.requireRole(id);
     this.assertMutable(role.isSystem, 'delete');
 
@@ -116,6 +152,14 @@ export class RolesService {
     }
 
     await this.prisma.role.delete({ where: { id } });
+    await this.audit.record({
+      actorUserId: actorId,
+      action: 'role.deleted',
+      resourceType: 'role',
+      resourceId: id,
+      changes: { name: role.name },
+      meta,
+    });
   }
 
   private assertMutable(isSystem: boolean, verb: string): void {

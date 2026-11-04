@@ -3,9 +3,14 @@ import { APP_ENV } from '../../../config/app.config.js';
 import { createHash, randomBytes } from 'node:crypto';
 import { PrismaService } from '../../../database/prisma/prisma.service.js';
 import type { AppEnvironment } from '../../../config/env.validation.js';
+import { AuditLogService } from '../../audit-logs/audit-log.service.js';
 import { PasswordService } from './password.service.js';
 import { TokenService } from './token.service.js';
-import { RefreshTokenService, type RequestMeta } from './refresh-token.service.js';
+import {
+  RefreshTokenReuseError,
+  RefreshTokenService,
+  type RequestMeta,
+} from './refresh-token.service.js';
 import { MailerPort } from '../interfaces/mailer.port.js';
 import {
   toUserView,
@@ -27,6 +32,7 @@ export class AuthService {
     private readonly passwords: PasswordService,
     private readonly tokens: TokenService,
     private readonly refreshTokens: RefreshTokenService,
+    private readonly audit: AuditLogService,
     @Inject(MailerPort) private readonly mailer: MailerPort,
   ) {}
 
@@ -34,20 +40,57 @@ export class AuthService {
     const user = await this.prisma.user.findUnique({ where: { email } });
 
     if (user === null) {
+      await this.audit.record({
+        action: 'auth.login.failure',
+        resourceType: 'session',
+        changes: { reason: 'unknown-account' },
+        meta,
+      });
       throw new UnauthorizedException(INVALID_CREDENTIALS);
     }
 
     if (user.lockedUntil !== null && user.lockedUntil.getTime() > Date.now()) {
+      await this.audit.record({
+        actorUserId: user.id,
+        action: 'auth.login.failure',
+        resourceType: 'session',
+        changes: { reason: 'locked' },
+        meta,
+      });
       throw new UnauthorizedException(INVALID_CREDENTIALS);
     }
 
     if (user.status !== 'ACTIVE') {
+      await this.audit.record({
+        actorUserId: user.id,
+        action: 'auth.login.failure',
+        resourceType: 'session',
+        changes: { reason: 'inactive' },
+        meta,
+      });
       throw new UnauthorizedException(INVALID_CREDENTIALS);
     }
 
     const valid = await this.passwords.verify(user.passwordHash, plaintext);
     if (!valid) {
-      await this.recordFailedLogin(user.id, user.failedLoginCount);
+      const locked = await this.recordFailedLogin(user.id, user.failedLoginCount);
+      await this.audit.record({
+        actorUserId: user.id,
+        action: 'auth.login.failure',
+        resourceType: 'session',
+        changes: { reason: 'invalid-credentials' },
+        meta,
+      });
+      if (locked) {
+        await this.audit.record({
+          actorUserId: user.id,
+          action: 'auth.login.locked',
+          resourceType: 'user',
+          resourceId: user.id,
+          changes: { lockedUntilMinutes: LOCKOUT_DURATION_MS / 60_000 },
+          meta,
+        });
+      }
       throw new UnauthorizedException(INVALID_CREDENTIALS);
     }
 
@@ -58,6 +101,14 @@ export class AuthService {
 
     const session = await this.refreshTokens.issue(user.id, meta);
     const accessToken = await this.tokens.signAccessToken(user.id, session.familyId);
+
+    await this.audit.record({
+      actorUserId: user.id,
+      action: 'auth.login.success',
+      resourceType: 'session',
+      changes: { familyId: session.familyId },
+      meta,
+    });
 
     return {
       accessToken,
@@ -70,7 +121,16 @@ export class AuthService {
     let session;
     try {
       session = await this.refreshTokens.rotate(presentedRefreshToken, meta);
-    } catch {
+    } catch (error) {
+      if (error instanceof RefreshTokenReuseError) {
+        await this.audit.record({
+          actorUserId: error.userId,
+          action: 'auth.refresh.reuse_detected',
+          resourceType: 'session',
+          changes: { familyId: error.familyId },
+          meta,
+        });
+      }
       throw new UnauthorizedException('Refresh token is invalid or expired');
     }
 
@@ -84,14 +144,28 @@ export class AuthService {
     return { accessToken, refreshToken: session.token };
   }
 
-  async logout(presentedRefreshToken: string | undefined): Promise<void> {
+  async logout(presentedRefreshToken: string | undefined, meta: RequestMeta): Promise<void> {
     if (presentedRefreshToken !== undefined && presentedRefreshToken.length > 0) {
-      await this.refreshTokens.revoke(presentedRefreshToken);
+      const ownerUserId = await this.refreshTokens.revoke(presentedRefreshToken);
+      if (ownerUserId !== null) {
+        await this.audit.record({
+          actorUserId: ownerUserId,
+          action: 'auth.logout',
+          resourceType: 'session',
+          meta,
+        });
+      }
     }
   }
 
-  async logoutAll(userId: string): Promise<void> {
+  async logoutAll(userId: string, meta: RequestMeta): Promise<void> {
     await this.refreshTokens.revokeAllForUser(userId);
+    await this.audit.record({
+      actorUserId: userId,
+      action: 'auth.logout_all',
+      resourceType: 'session',
+      meta,
+    });
   }
 
   async me(userId: string): Promise<UserView> {
@@ -102,7 +176,7 @@ export class AuthService {
     return toUserView(user);
   }
 
-  async forgotPassword(email: string): Promise<void> {
+  async forgotPassword(email: string, meta: RequestMeta): Promise<void> {
     const user = await this.prisma.user.findUnique({ where: { email } });
     if (user === null || user.status !== 'ACTIVE') {
       return; // Always report success to the caller; never reveal existence.
@@ -119,11 +193,18 @@ export class AuthService {
         expiresAt,
       },
     });
+    await this.audit.record({
+      actorUserId: user.id,
+      action: 'auth.password.reset_requested',
+      resourceType: 'user',
+      resourceId: user.id,
+      meta,
+    });
 
     await this.mailer.sendPasswordReset(user.email, token, expiresAt);
   }
 
-  async resetPassword(token: string, newPassword: string): Promise<void> {
+  async resetPassword(token: string, newPassword: string, meta: RequestMeta): Promise<void> {
     const record = await this.prisma.passwordResetToken.findUnique({
       where: { tokenHash: this.hashToken(token) },
     });
@@ -139,12 +220,20 @@ export class AuthService {
       where: { id: record.id },
       data: { usedAt: new Date() },
     });
+    await this.audit.record({
+      actorUserId: record.userId,
+      action: 'auth.password.reset',
+      resourceType: 'user',
+      resourceId: record.userId,
+      meta,
+    });
   }
 
   async changePassword(
     userId: string,
     currentPassword: string,
     newPassword: string,
+    meta: RequestMeta,
   ): Promise<void> {
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
     if (user === null) {
@@ -153,10 +242,25 @@ export class AuthService {
 
     const valid = await this.passwords.verify(user.passwordHash, currentPassword);
     if (!valid) {
+      await this.audit.record({
+        actorUserId: userId,
+        action: 'auth.password.change_failure',
+        resourceType: 'user',
+        resourceId: userId,
+        changes: { reason: 'wrong-current-password' },
+        meta,
+      });
       throw new UnauthorizedException('Current password is incorrect');
     }
 
     await this.applyNewPassword(userId, newPassword);
+    await this.audit.record({
+      actorUserId: userId,
+      action: 'auth.password.changed',
+      resourceType: 'user',
+      resourceId: userId,
+      meta,
+    });
   }
 
   private async applyNewPassword(userId: string, newPassword: string): Promise<void> {
@@ -168,7 +272,8 @@ export class AuthService {
     await this.refreshTokens.revokeAllForUser(userId);
   }
 
-  private async recordFailedLogin(userId: string, currentCount: number): Promise<void> {
+  /** Returns true when this failure crossed the threshold and locked the account. */
+  private async recordFailedLogin(userId: string, currentCount: number): Promise<boolean> {
     const nextCount = currentCount + 1;
     const shouldLock = nextCount >= MAX_FAILED_LOGIN_ATTEMPTS;
     await this.prisma.user.update({
@@ -178,6 +283,7 @@ export class AuthService {
         ...(shouldLock ? { lockedUntil: new Date(Date.now() + LOCKOUT_DURATION_MS) } : {}),
       },
     });
+    return shouldLock;
   }
 
   private hashToken(token: string): string {

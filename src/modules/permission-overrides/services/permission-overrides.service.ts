@@ -6,6 +6,8 @@ import {
 } from '@nestjs/common';
 import type { OverrideEffect } from '../../../generated/prisma/client.js';
 import { PrismaService } from '../../../database/prisma/prisma.service.js';
+import type { RequestMeta } from '../../../common/interfaces/request-meta.interface.js';
+import { AuditLogService } from '../../audit-logs/audit-log.service.js';
 import { PermissionEvaluatorService } from '../../authz/services/permission-evaluator.service.js';
 import type { OverrideEffectInput } from '../dto/override.schemas.js';
 
@@ -19,6 +21,7 @@ export class PermissionOverridesService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly evaluator: PermissionEvaluatorService,
+    private readonly audit: AuditLogService,
   ) {}
 
   async list(userId: string): Promise<PermissionOverrideView[]> {
@@ -41,6 +44,7 @@ export class PermissionOverridesService {
     permissionKey: string,
     effect: OverrideEffectInput,
     actorId: string,
+    meta: RequestMeta,
   ): Promise<PermissionOverrideView | null> {
     await this.requireUser(userId);
     const permission = await this.prisma.permission.findUnique({
@@ -60,6 +64,14 @@ export class PermissionOverridesService {
       await this.prisma.userPermissionOverride.deleteMany({
         where: { userId, permissionId: permission.id },
       });
+      await this.audit.record({
+        actorUserId: actorId,
+        action: 'override.inherited',
+        resourceType: 'user',
+        resourceId: userId,
+        changes: { permissionKey },
+        meta,
+      });
       return null;
     }
 
@@ -67,6 +79,14 @@ export class PermissionOverridesService {
       where: { userId_permissionId: { userId, permissionId: permission.id } },
       create: { userId, permissionId: permission.id, effect },
       update: { effect },
+    });
+    await this.audit.record({
+      actorUserId: actorId,
+      action: 'override.set',
+      resourceType: 'user',
+      resourceId: userId,
+      changes: { permissionKey, effect },
+      meta,
     });
     return { permissionKey: permission.key, effect };
   }
