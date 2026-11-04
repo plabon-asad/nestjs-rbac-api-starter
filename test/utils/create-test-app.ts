@@ -8,6 +8,7 @@ import { PrismaService } from '../../src/database/prisma/prisma.service.js';
 import { AuthModule } from '../../src/modules/auth/auth.module.js';
 import { AuthzModule } from '../../src/modules/authz/authz.module.js';
 import { PermissionsModule } from '../../src/modules/permissions/permissions.module.js';
+import { PermissionOverridesModule } from '../../src/modules/permission-overrides/permission-overrides.module.js';
 import { RolesModule } from '../../src/modules/roles/roles.module.js';
 import { MailerPort } from '../../src/modules/auth/interfaces/mailer.port.js';
 import type { AppEnvironment } from '../../src/config/env.validation.js';
@@ -52,7 +53,15 @@ export async function createTestApp(options: CreateTestAppOptions = {}): Promise
   const mailer = new CapturingMailer();
 
   const moduleRef = await Test.createTestingModule({
-    imports: [CoreModule, throttlerModule, AuthModule, RolesModule, PermissionsModule, AuthzModule],
+    imports: [
+      CoreModule,
+      throttlerModule,
+      AuthModule,
+      RolesModule,
+      PermissionsModule,
+      PermissionOverridesModule,
+      AuthzModule,
+    ],
     controllers: [...(options.extraControllers ?? [])],
     providers: [...globalGuardProviders],
   })

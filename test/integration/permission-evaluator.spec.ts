@@ -141,6 +141,134 @@ describe('PermissionEvaluatorService.assertAllowed', () => {
   });
 });
 
+describe('PermissionEvaluatorService with user permission overrides', () => {
+  beforeEach(async () => {
+    await prisma.permission.create({
+      data: { key: 'users.read', name: 'Read users', resource: 'users', action: 'read' },
+    });
+    await prisma.permission.create({
+      data: { key: 'audit-logs.read', name: 'Read audit', resource: 'audit-logs', action: 'read' },
+    });
+  });
+
+  it('a DENY beats every role grant', async () => {
+    const userId = await createUserFixture('denier@rbac.test.local');
+    const role = await prisma.role.create({ data: { name: 'STAFF' } });
+    await linkPermissions(role.id, ['users.read']);
+    await assignRoles(userId, [role.id]);
+    await expect(evaluator.isAllowed(userId, ['users.read'], 'and')).resolves.toBe(true);
+
+    await setOverride(userId, 'users.read', 'DENY');
+    await expect(evaluator.isAllowed(userId, ['users.read'], 'and')).resolves.toBe(false);
+  });
+
+  it('an ALLOW grants a permission with no role behind it', async () => {
+    const userId = await createUserFixture('allower@rbac.test.local');
+    await expect(evaluator.isAllowed(userId, ['users.read'], 'and')).resolves.toBe(false);
+
+    await setOverride(userId, 'users.read', 'ALLOW');
+    await expect(evaluator.isAllowed(userId, ['users.read'], 'and')).resolves.toBe(true);
+  });
+
+  it('an ALLOW does not stack on top of a DENY for the same permission', async () => {
+    const userId = await createUserFixture('conflict@rbac.test.local');
+    const role = await prisma.role.create({ data: { name: 'STAFF' } });
+    await linkPermissions(role.id, ['users.read']);
+    await assignRoles(userId, [role.id]);
+
+    await setOverride(userId, 'users.read', 'DENY');
+    // The composite key holds one row per (user, permission): switching the row to ALLOW
+    // must not resurrect a second, conflicting decision for the same key.
+    await setOverride(userId, 'users.read', 'ALLOW');
+    await expect(evaluator.isAllowed(userId, ['users.read'], 'and')).resolves.toBe(true);
+
+    await prisma.userPermissionOverride.deleteMany({});
+    await expect(evaluator.isAllowed(userId, ['users.read'], 'and')).resolves.toBe(true);
+  });
+
+  it('deleting an override row restores inheritance (INHERIT semantics)', async () => {
+    const userId = await createUserFixture('inherit@rbac.test.local');
+    const role = await prisma.role.create({ data: { name: 'STAFF' } });
+    await linkPermissions(role.id, ['users.read']);
+    await assignRoles(userId, [role.id]);
+
+    await setOverride(userId, 'users.read', 'DENY');
+    await expect(evaluator.isAllowed(userId, ['users.read'], 'and')).resolves.toBe(false);
+    await prisma.userPermissionOverride.deleteMany({ where: { userId } });
+    await expect(evaluator.isAllowed(userId, ['users.read'], 'and')).resolves.toBe(true);
+
+    await setOverride(userId, 'audit-logs.read', 'ALLOW');
+    await expect(evaluator.isAllowed(userId, ['audit-logs.read'], 'and')).resolves.toBe(true);
+    await prisma.userPermissionOverride.deleteMany({ where: { userId } });
+    await expect(evaluator.isAllowed(userId, ['audit-logs.read'], 'and')).resolves.toBe(false);
+  });
+
+  it('role changes propagate while a DENY keeps suppressing', async () => {
+    const userId = await createUserFixture('propagate@rbac.test.local');
+    await setOverride(userId, 'users.read', 'DENY');
+
+    const role = await prisma.role.create({ data: { name: 'STAFF' } });
+    await linkPermissions(role.id, ['users.read', 'audit-logs.read']);
+    await assignRoles(userId, [role.id]);
+
+    await expect(evaluator.isAllowed(userId, ['audit-logs.read'], 'and')).resolves.toBe(true);
+    await expect(evaluator.isAllowed(userId, ['users.read'], 'and')).resolves.toBe(false);
+
+    await prisma.rolePermission.deleteMany({ where: { roleId: role.id } });
+    await expect(evaluator.isAllowed(userId, ['audit-logs.read'], 'and')).resolves.toBe(false);
+  });
+
+  it("one user's override never affects another", async () => {
+    const alice = await createUserFixture('alice-override@rbac.test.local');
+    const bob = await createUserFixture('bob-override@rbac.test.local');
+    const role = await prisma.role.create({ data: { name: 'STAFF' } });
+    await linkPermissions(role.id, ['users.read']);
+    await assignRoles(alice, [role.id]);
+    await assignRoles(bob, [role.id]);
+
+    await setOverride(alice, 'users.read', 'DENY');
+    await expect(evaluator.isAllowed(alice, ['users.read'], 'and')).resolves.toBe(false);
+    await expect(evaluator.isAllowed(bob, ['users.read'], 'and')).resolves.toBe(true);
+  });
+
+  it('the system role bypasses overrides, matching the documented decision order', async () => {
+    const userId = await createUserFixture('root-override@rbac.test.local');
+    const system = await prisma.role.create({ data: { name: 'SUPER_ADMIN', isSystem: true } });
+    await assignRoles(userId, [system.id]);
+
+    await setOverride(userId, 'users.read', 'DENY');
+    await expect(evaluator.isAllowed(userId, ['users.read'], 'and')).resolves.toBe(true);
+  });
+
+  it('exposes the effective set on facts: (roles union ALLOW) minus DENY', async () => {
+    const userId = await createUserFixture('effective@rbac.test.local');
+    const role = await prisma.role.create({ data: { name: 'STAFF' } });
+    await linkPermissions(role.id, ['users.read']);
+    await assignRoles(userId, [role.id]);
+    await setOverride(userId, 'audit-logs.read', 'ALLOW');
+    await setOverride(userId, 'users.read', 'DENY');
+
+    const facts = await evaluator.factsFor(userId);
+    expect([...(facts?.permissions ?? [])].sort()).toEqual(['audit-logs.read']);
+  });
+});
+
+async function setOverride(
+  userId: string,
+  permissionKey: string,
+  effect: 'ALLOW' | 'DENY',
+): Promise<void> {
+  const permission = await prisma.permission.findUniqueOrThrow({
+    where: { key: permissionKey },
+    select: { id: true },
+  });
+  await prisma.userPermissionOverride.upsert({
+    where: { userId_permissionId: { userId, permissionId: permission.id } },
+    create: { userId, permissionId: permission.id, effect },
+    update: { effect },
+  });
+}
+
 async function linkPermissions(roleId: string, keys: readonly string[]): Promise<void> {
   const permissions = await prisma.permission.findMany({ where: { key: { in: [...keys] } } });
   await prisma.rolePermission.createMany({

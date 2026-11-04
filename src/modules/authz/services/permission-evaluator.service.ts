@@ -40,6 +40,7 @@ export class PermissionEvaluatorService {
    * Reads the current grant set from the database on every call. Deliberately uncached:
    * revoking a role or deactivating an account has to bite on the next request, and a
    * starter template should not ship a cache whose invalidation the reader cannot see.
+   * The returned `permissions` are the effective set: (role grants ∪ ALLOW overrides) \ DENY overrides.
    */
   async factsFor(userId: string): Promise<AccessFacts | null> {
     const user = await this.prisma.user.findUnique({
@@ -56,6 +57,9 @@ export class PermissionEvaluatorService {
             },
           },
         },
+        permissionOverrides: {
+          select: { effect: true, permission: { select: { key: true } } },
+        },
       },
     });
     if (user === null) {
@@ -68,6 +72,13 @@ export class PermissionEvaluatorService {
       superAdmin = superAdmin || assignment.role.isSystem;
       for (const grant of assignment.role.permissions) {
         permissions.add(grant.permission.key);
+      }
+    }
+    for (const override of user.permissionOverrides) {
+      if (override.effect === 'ALLOW') {
+        permissions.add(override.permission.key);
+      } else {
+        permissions.delete(override.permission.key);
       }
     }
 
