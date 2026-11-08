@@ -8,6 +8,7 @@ function facts(overrides: Partial<AccessFacts> = {}): AccessFacts {
   return {
     status: 'ACTIVE',
     superAdmin: false,
+    roleNames: [],
     permissions: new Set<string>(['roles.read']),
     ...overrides,
   };

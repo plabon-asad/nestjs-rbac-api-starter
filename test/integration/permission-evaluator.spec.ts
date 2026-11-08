@@ -36,6 +36,7 @@ describe('PermissionEvaluatorService.factsFor', () => {
       'roles.read',
       'users.read',
     ]);
+    expect(facts?.roleNames).toEqual(['AUDITOR', 'READER']);
     expect(facts?.superAdmin).toBe(false);
   });
 
@@ -46,6 +47,7 @@ describe('PermissionEvaluatorService.factsFor', () => {
 
     const facts = await evaluator.factsFor(userId);
     expect(facts?.superAdmin).toBe(true);
+    expect(facts?.roleNames).toEqual(['SUPER_ADMIN']);
     expect(facts?.permissions.size).toBe(0);
   });
 });

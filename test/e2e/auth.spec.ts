@@ -2,6 +2,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import request from 'supertest';
 import { prisma, resetTestDatabase } from '../utils/prisma-test.js';
 import { seedUser } from '../utils/seed-user.js';
+import { createPermissionFixture, createRoleFixture, grantRole } from '../utils/rbac-fixtures.js';
 import { createTestApp, type TestContext } from '../utils/create-test-app.js';
 
 const INVALID_CREDENTIALS_MESSAGE = 'Invalid email or password.';
@@ -114,19 +115,77 @@ describe('account lockout', () => {
 });
 
 describe('GET /auth/me', () => {
-  it('returns 401 without a token, with a garbage token, or after revocation of status', async () => {
+  it('returns 401 without a token or with a garbage token', async () => {
     await http().get('/api/auth/me').expect(401);
     await http().get('/api/auth/me').set('Authorization', 'Bearer garbage.token.here').expect(401);
   });
 
-  it('returns the current user view without secrets', async () => {
+  it('returns the profile, roles and effective permissions without secrets', async () => {
     await seedUser('heidi@test.local', 'alpiner-12345');
     const { body } = await login('heidi@test.local', 'alpiner-12345');
-    const me = await http().get('/api/auth/me').set('Authorization', `Bearer ${body.accessToken}`);
+    const me = await http()
+      .get('/api/auth/me')
+      .set('Authorization', `Bearer ${body.accessToken}`)
+      .expect(200);
 
-    expect(me.status).toBe(200);
-    expect(me.body.email).toBe('heidi@test.local');
-    expect(me.body.passwordHash).toBeUndefined();
+    expect(me.body.user).toMatchObject({ email: 'heidi@test.local', status: 'ACTIVE' });
+    expect(me.body.user.passwordHash).toBeUndefined();
+    expect(me.body.roles).toEqual([]);
+    expect(me.body.permissions).toEqual([]);
+  });
+
+  it('reports role names and the effective permission set', async () => {
+    const userId = await seedUser('me-roles@test.local', 'roles-are-us-123');
+    await createPermissionFixture('roles.read');
+    await createPermissionFixture('users.read');
+    await createRoleFixture('READER', ['roles.read']);
+    await grantRole(userId, 'READER');
+
+    const { body } = await login('me-roles@test.local', 'roles-are-us-123');
+    const me = await http()
+      .get('/api/auth/me')
+      .set('Authorization', `Bearer ${body.accessToken}`)
+      .expect(200);
+
+    expect(me.body.roles).toEqual(['READER']);
+    expect(me.body.permissions).toEqual(['roles.read']);
+  });
+
+  it('subtracts DENY overrides from the reported effective set', async () => {
+    const userId = await seedUser('me-deny@test.local', 'deny-me-please-1');
+    await createPermissionFixture('roles.read');
+    await createPermissionFixture('users.read');
+    await createRoleFixture('MIXED', ['roles.read', 'users.read']);
+    await grantRole(userId, 'MIXED');
+    const denied = await prisma.permission.findUniqueOrThrow({ where: { key: 'users.read' } });
+    await prisma.userPermissionOverride.create({
+      data: { userId, permissionId: denied.id, effect: 'DENY' },
+    });
+
+    const { body } = await login('me-deny@test.local', 'deny-me-please-1');
+    const me = await http()
+      .get('/api/auth/me')
+      .set('Authorization', `Bearer ${body.accessToken}`)
+      .expect(200);
+
+    expect(me.body.permissions).toEqual(['roles.read']);
+  });
+
+  it('reports the full catalogue to a system-role holder', async () => {
+    const userId = await seedUser('me-root@test.local', 'root-access-123');
+    await createPermissionFixture('roles.read');
+    await createPermissionFixture('users.read');
+    await createRoleFixture('SUPER_ADMIN', [], true);
+    await grantRole(userId, 'SUPER_ADMIN');
+
+    const { body } = await login('me-root@test.local', 'root-access-123');
+    const me = await http()
+      .get('/api/auth/me')
+      .set('Authorization', `Bearer ${body.accessToken}`)
+      .expect(200);
+
+    expect(me.body.roles).toEqual(['SUPER_ADMIN']);
+    expect(me.body.permissions).toEqual(['roles.read', 'users.read']);
   });
 
   it('rejects tokens issued for a disabled user immediately (per-request status check)', async () => {

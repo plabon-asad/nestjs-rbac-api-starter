@@ -12,11 +12,12 @@ import {
   type RequestMeta,
 } from './refresh-token.service.js';
 import { MailerPort } from '../interfaces/mailer.port.js';
+import { PermissionEvaluatorService } from '../../authz/services/permission-evaluator.service.js';
 import {
   toUserView,
   type AuthTokensView,
   type LoginResultView,
-  type UserView,
+  type SessionAccessView,
 } from '../models/auth-views.js';
 
 const INVALID_CREDENTIALS = 'Invalid email or password.';
@@ -34,6 +35,7 @@ export class AuthService {
     private readonly refreshTokens: RefreshTokenService,
     private readonly audit: AuditLogService,
     @Inject(MailerPort) private readonly mailer: MailerPort,
+    private readonly evaluator: PermissionEvaluatorService,
   ) {}
 
   async login(email: string, plaintext: string, meta: RequestMeta): Promise<LoginResultView> {
@@ -168,12 +170,36 @@ export class AuthService {
     });
   }
 
-  async me(userId: string): Promise<UserView> {
+  async me(userId: string): Promise<SessionAccessView> {
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
     if (user === null) {
       throw new UnauthorizedException('Session user no longer exists');
     }
-    return toUserView(user);
+
+    const facts = await this.evaluator.factsFor(userId);
+    if (facts === null) {
+      throw new UnauthorizedException('Session user no longer exists');
+    }
+
+    // A system-role holder bypasses permission checks, so report the whole live
+    // catalogue (not just explicit grants) to keep client-side gating accurate.
+    const permissions = facts.superAdmin
+      ? await this.allPermissionKeys()
+      : [...facts.permissions].sort();
+
+    return {
+      user: toUserView(user),
+      roles: [...facts.roleNames].sort(),
+      permissions,
+    };
+  }
+
+  private async allPermissionKeys(): Promise<string[]> {
+    const permissions = await this.prisma.permission.findMany({
+      select: { key: true },
+      orderBy: { key: 'asc' },
+    });
+    return permissions.map((permission) => permission.key);
   }
 
   async forgotPassword(email: string, meta: RequestMeta): Promise<void> {

@@ -146,6 +146,12 @@ Global prefix `/api`. Bearer access token required unless noted.
 The 17-key catalogue is defined in `src/database/seeds/rbac-catalogue.ts`; seeded roles are
 `SUPER_ADMIN` (system), `USER_ADMIN` and `READ_ONLY`.
 
+`GET /auth/me` returns the caller's authorization facts as `{ user, roles, permissions }`:
+`roles` lists the assigned role names and `permissions` is the effective set
+`(role grants ∪ ALLOW) \ DENY`, recomputed per request. A system-role holder receives the
+whole live catalogue, so a client can gate navigation and actions without re-implementing the
+evaluation algorithm.
+
 ## OpenAPI docs
 
 `/api/docs` (UI) and `/api/docs.json` (raw document) are served only when `DOCS_ENABLED` is

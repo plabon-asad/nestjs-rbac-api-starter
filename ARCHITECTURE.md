@@ -37,6 +37,7 @@ Policy: caret within verified-compatible matrix, committed lockfile (pnpm), Depe
 5. **Refresh token transport** — `httpOnly; Secure; SameSite` cookie primary; JSON body fallback documented for non-browser clients.
 6. **INHERIT semantics** — represented by absence of a `UserPermissionOverride` row (resetting an override deletes it).
 7. **Audit** — no update/delete API surface; redaction at write time; DB-level append-only grants documented for production.
+8. **Client authorization facts** — `GET /auth/me` returns `{ user, roles, permissions }`; `permissions` is the evaluator's effective set (the whole live catalogue for a system-role holder), so clients gate their UI against one server-computed source of truth instead of duplicating the algorithm.
 
 ## Layers & Rules
 

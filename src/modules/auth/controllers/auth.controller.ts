@@ -31,7 +31,7 @@ import {
   type RefreshDto,
   type ResetPasswordDto,
 } from '../dto/auth.schemas.js';
-import type { AuthTokensView, LoginResultView, UserView } from '../models/auth-views.js';
+import type { AuthTokensView, LoginResultView, SessionAccessView } from '../models/auth-views.js';
 import type { AuthenticatedUser } from '../../../common/interfaces/authenticated-user.interface.js';
 
 const SESSION_COOKIE = 'refresh_token';
@@ -159,11 +159,13 @@ export class AuthController {
   @AuthenticatedOnly()
   @ApiBearerAuth('bearerAuth')
   @ApiOperation({
-    summary: 'Current profile',
-    description: 'Requires an authenticated caller. Reads live state, not token claims.',
+    summary: 'Current profile, roles and effective permissions',
+    description:
+      'Requires an authenticated caller. Reads live state, not token claims: the role names and ' +
+      'the effective permission set are recomputed on every request so the client can gate its UI.',
   })
   @Get('me')
-  async me(@CurrentUser() user: AuthenticatedUser): Promise<UserView> {
+  async me(@CurrentUser() user: AuthenticatedUser): Promise<SessionAccessView> {
     return this.auth.me(user.id);
   }
 

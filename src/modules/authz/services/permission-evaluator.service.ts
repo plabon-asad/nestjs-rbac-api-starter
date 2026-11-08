@@ -6,6 +6,8 @@ import type { PermissionMode } from '../../../common/decorators/require-permissi
 export interface AccessFacts {
   readonly status: UserStatus;
   readonly superAdmin: boolean;
+  /** Names of the roles assigned to the user, sorted alphabetically. */
+  readonly roleNames: readonly string[];
   readonly permissions: ReadonlySet<string>;
 }
 
@@ -51,6 +53,7 @@ export class PermissionEvaluatorService {
           select: {
             role: {
               select: {
+                name: true,
                 isSystem: true,
                 permissions: { select: { permission: { select: { key: true } } } },
               },
@@ -67,9 +70,11 @@ export class PermissionEvaluatorService {
     }
 
     const permissions = new Set<string>();
+    const roleNames: string[] = [];
     let superAdmin = false;
     for (const assignment of user.roles) {
       superAdmin = superAdmin || assignment.role.isSystem;
+      roleNames.push(assignment.role.name);
       for (const grant of assignment.role.permissions) {
         permissions.add(grant.permission.key);
       }
@@ -82,7 +87,7 @@ export class PermissionEvaluatorService {
       }
     }
 
-    return { status: user.status, superAdmin, permissions };
+    return { status: user.status, superAdmin, roleNames: roleNames.sort(), permissions };
   }
 
   async isAllowed(

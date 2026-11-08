@@ -2,6 +2,7 @@ import { Module, Provider } from '@nestjs/common';
 import { APP_ENV } from '../../config/app.config.js';
 import type { AppEnvironment } from '../../config/env.validation.js';
 import { AuditLogsModule } from '../audit-logs/audit-logs.module.js';
+import { AuthzModule } from '../authz/authz.module.js';
 import { AuthController } from './controllers/auth.controller.js';
 import { MailerPort } from './interfaces/mailer.port.js';
 import { AuthService } from './services/auth.service.js';
@@ -27,7 +28,7 @@ const passwordServiceProvider: Provider<PasswordService> = {
 };
 
 @Module({
-  imports: [AuditLogsModule],
+  imports: [AuditLogsModule, AuthzModule],
   controllers: [AuthController],
   providers: [
     AuthService,
