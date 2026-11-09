@@ -56,6 +56,10 @@ pnpm db:seed
 pnpm start:dev
 ```
 
+> Starting over? `pnpm db:reset` drops the dev database, re-applies every migration and reseeds
+> the catalogue and bootstrap super admin. It is destructive, so see
+> [Resetting the database](#resetting-the-database).
+
 Open `http://localhost:3000/api/docs`, log in as the super admin, and call any endpoint.
 
 ## Commands
@@ -70,9 +74,35 @@ Open `http://localhost:3000/api/docs`, log in as the super admin, and call any e
 | `pnpm typecheck` / `pnpm lint` / `pnpm format`        | tsc, ESLint, Prettier                                     |
 | `pnpm db:migrate` / `pnpm db:deploy` / `pnpm db:seed` | Migrate dev DB / apply committed migrations / seed        |
 | `pnpm db:deploy:test`                                 | Apply migrations to the test database                     |
+| `pnpm db:reset`                                       | Drop + recreate the dev DB (reset → migrate → seed)       |
+| `pnpm db:reset:test`                                  | Drop + re-migrate the test DB (no seed)                   |
 | `pnpm db:use:postgres` / `pnpm db:use:mysql`          | Switch active dialect (schema + migrations path)          |
 | `pnpm db:parity`                                      | Fail if the two Prisma schemas drift apart                |
 | `pnpm prisma:generate`                                | Regenerate the client for the current `DATABASE_PROVIDER` |
+
+## Resetting the database
+
+When the local schema or data has drifted, rebuild it from the committed migrations:
+
+```bash
+# Development database (DATABASE_URL) — destructive
+pnpm db:reset
+
+# Isolated test database (TEST_DATABASE_URL) — destructive, no seed
+pnpm db:reset:test
+```
+
+`db:reset` runs `prisma migrate reset --force` (drops the schema and re-applies every
+migration) followed by `prisma db seed`. Prisma 7 no longer chains the seed from
+`migrate reset`, so the two steps are explicit. The test reset deliberately skips the
+seed: the integration/e2e suites truncate the tables and insert their own fixtures. It
+also reads only `TEST_DATABASE_URL` and never falls back to `DATABASE_URL`, so a missing
+variable cannot wipe the development database.
+
+> **Destructive.** Both commands drop all data in the target database. After `db:reset`
+> the bootstrap super admin is re-created from `SUPER_ADMIN_EMAIL` / `SUPER_ADMIN_PASSWORD`
+> in `.env`, so the login password becomes whatever `.env` holds at that moment — the seed
+> only sets a password when it creates a missing account.
 
 ## Configuration
 
